@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+import argparse
+import os
+import subprocess
+import shutil
+import sys
+logo="[]=\n= ==\n =[]bsidianize".replace("=", "\\")
+#  []\    ^logo^
+#  \ \\
+#   \[]bsidianize
+
+## Step 1: Parse arguments
+parser=argparse.ArgumentParser(description="obsidianizer - Squash an existing system")
+parser.add_argument("root", help="The partition that holds /")
+parser.add_argument("-s", "--squashfs", type=str, default="./system.sfs", help="The output SquashFS")
+parser.add_argument("-e", "--esp", type=str, default="", help="The EFI boot partition")
+args=parser.parse_args()
+root=args.root
+sfs=args.squashfs
+esp=""
+if args.esp=="":
+  esp=None
+else:
+  esp=args.esp
+
+## Step 2: Sanity checks
+print(logo)
+print("Running sanity checks...")
+if not shutil.which("mksquashfs"):
+  raise SystemExit("You must have the mksquashfs utility.")
+if os.geteuid() != 0:
+  raise SystemExit("You must be root to run this.")
+with open("/proc/mounts") as f:
+  mounts={line.split()[1]: line.split()[2] for line in f}
+if mounts.get("/proc") != "proc":
+  raise SystemExit("/proc is not procfs")
+if mounts.get("/dev") not in ("devtmpfs", "tmpfs"):
+  raise SystemExit("/dev is not devtmpfs or tmpfs")
+if not (Path(root).exists() and Path(root).is_block_device()):
+  raise SystemExit(f"{root} is not a block device")
+if esp is not None:
+  if not (Path(esp).exists() and Path(esp).is_block_device()):
+      raise SystemExit(f"{esp} is not a block device")
+parent=Path(sfs).parent
+if not parent.is_dir():
+    raise SystemExit(f"There should be a folder at {parent}")
+def isMounted(device: str) -> bool:
+  with open("/proc/mounts", "r") as f:
+    for line in f:
+      if line.split()[0] == device:
+        return True
+  return False
+
+if isMounted(root):
+  raise SystemExit(f"{root} is currently mounted.")
+if esp is not None:
+  if isMounted(esp):
+    raise SystemExit(f"{esp} is currently mounted.")
+print("This system (and user, probably) is sane. Continuing...")
+
+## Step 3: Mount
+print("Mounting partitions...")
+rootMount="/mnt/obsidianize"
+espMount="/mnt/obsidianize/boot/efi"
+subprocess.run(["mkdir", "-p", rootMount], check=True)
+subprocess.run(["mount", root, rootMount], check=True)
+if esp is not None:
+  subprocess.run(["mkdir", "-p", espMount], check=True)
+  subprocess.run(["mount", esp, espMount], check=True)
+
+## Step 4: Squash
+print("Squashing...")
+subprocess.run([
+  "mksquashfs",
+  rootMount,
+  sfs,
+  "-noappend",
+  "-comp", "xz",
+  "-processors", str(os.cpu_count())
+], check=True)
+
+## Step 5: Clean up
+print("Cleaning up...")
+subprocess.run(["umount", rootMount], check=True)
+os.rmdir(rootMount)
+
+print("THIS system has been Obsidianized! Now install obsidianOS to this drive with the command `obsidianctl install`")
