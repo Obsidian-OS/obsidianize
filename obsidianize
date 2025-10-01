@@ -4,6 +4,7 @@ import os
 import subprocess
 import shutil
 import sys
+from pathlib import Path
 logo="[]=\n= ==\n =[]bsidianize".replace("=", "\\")
 #  []\    ^logo^
 #  \ \\
